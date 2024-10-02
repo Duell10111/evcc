@@ -135,10 +135,15 @@ func (lp *Loadpoint) SocBasedPlanning() bool {
 func (lp *Loadpoint) effectiveMinCurrent() float64 {
 	lpMin := lp.GetMinCurrent()
 	var vehicleMin, chargerMin float64
+	var vehicleSupportsLimiter = false
 
 	if v := lp.GetVehicle(); v != nil {
 		if res, ok := v.OnIdentified().GetMinCurrent(); ok {
 			vehicleMin = res
+		}
+		// TODO: Maybe also check if CurrentGetter supported?
+		if _, ok := v.(api.CurrentLimiter); ok {
+			vehicleSupportsLimiter = true
 		}
 	}
 
@@ -152,9 +157,17 @@ func (lp *Loadpoint) effectiveMinCurrent() float64 {
 	case max(vehicleMin, chargerMin) == 0:
 		return lpMin
 	case chargerMin > 0:
-		return max(vehicleMin, chargerMin)
+		if vehicleSupportsLimiter && vehicleMin > 0 {
+			return min(vehicleMin, chargerMin)
+		} else {
+			return max(vehicleMin, chargerMin)
+		}
 	default:
-		return max(vehicleMin, lpMin)
+		if vehicleSupportsLimiter {
+			return min(vehicleMin, lpMin)
+		} else {
+			return max(vehicleMin, lpMin)
+		}
 	}
 }
 

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/evcc-io/evcc/core/coordinator"
 	"testing"
 	"time"
 
@@ -464,6 +465,138 @@ func TestDisableAndEnableAtTargetSoc(t *testing.T) {
 	charger.EXPECT().Enable(true).Return(nil)
 	lp.Update(-500, 0, nil, false, false, 0, nil, nil)
 	ctrl.Finish()
+}
+
+func TestSetCurrentAtVehicleSideIfNeeded(t *testing.T) {
+	clock := clock.NewMock()
+	ctrl := gomock.NewController(t)
+	charger := api.NewMockCharger(ctrl)
+	v := api.NewMockVehicle(ctrl)
+
+	// wrap vehicle with estimator
+	//expectVehiclePublish(vehicle)
+
+	type vehicleT struct {
+		*api.MockVehicle
+		*api.MockCurrentLimiter
+	}
+
+	vehicleCurrentLimiter := api.NewMockCurrentLimiter(ctrl)
+	vehicle := &vehicleT{v, vehicleCurrentLimiter}
+	expectVehiclePublish(v)
+	vehicle.MockVehicle.EXPECT().Identifiers().AnyTimes().Return([]string{"foo"})
+	// E.g Tesla vehicle
+	ac := api.ActionConfig{
+		MinCurrent: 5,
+		MaxCurrent: 16,
+	}
+	vehicle.MockVehicle.EXPECT().OnIdentified().AnyTimes().Return(ac)
+	vehicle.MockVehicle.EXPECT().Soc().Return(0.0, nil).AnyTimes()
+
+	//socEstimator := soc.NewEstimator(util.NewLogger("foo"), charger, vehicle, false)
+
+	lp := &Loadpoint{
+		log:         util.NewLogger("foo"),
+		bus:         evbus.New(),
+		clock:       clock,
+		charger:     charger,
+		chargeMeter: &Null{},            // silence nil panics
+		chargeRater: &Null{},            // silence nil panics
+		chargeTimer: &Null{},            // silence nil panics
+		progress:    NewProgress(0, 10), // silence nil panics
+		wakeUpTimer: NewTimer(),         // silence nil panics
+		// coordinator:   coordinator.NewDummy(), // silence nil panics
+		minCurrent: minA - 1,
+		maxCurrent: maxA,
+		//socEstimator:  socEstimator, // instead of vehicle: vehicle,
+		mode:          api.ModePV,
+		sessionEnergy: NewEnergyMetrics(),
+		enabled:       true,
+	}
+
+	currentLimiter := api.NewMockCurrentLimiter(ctrl)
+
+	lp.charger = struct {
+		api.Charger
+		api.CurrentLimiter
+	}{
+		Charger:        lp.charger,
+		CurrentLimiter: currentLimiter,
+	}
+
+	//charger.EXPECT().Enabled().Return(lp.enabled, nil).Times(2)
+	charger.EXPECT().Enabled().Return(lp.enabled, nil).AnyTimes()
+	charger.EXPECT().MaxCurrent(int64(6)).Return(nil)
+	//currentLimiter.EXPECT().GetMinMaxCurrent().Return(minA, maxA, nil).Times(3)
+	currentLimiter.EXPECT().GetMinMaxCurrent().Return(minA, maxA, nil).AnyTimes()
+
+	attachListeners(t, lp)
+
+	lp.coordinator = coordinator.NewAdapter(lp, coordinator.New(util.NewLogger("foo"), []api.Vehicle{vehicle}))
+
+	lp.enabled = true
+	lp.chargeCurrent = minA
+	lp.status = api.StatusC
+	lp.setActiveVehicle(vehicle)
+
+	t.Log("charging with to low power")
+	charger.EXPECT().Status().Return(api.StatusC, nil)
+	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
+	//charger.EXPECT().MaxCurrent(int64(0)).Return(nil)
+	charger.EXPECT().Enable(false).Return(nil)
+	lp.Update(500, false, false, false, 0, nil, nil)
+	ctrl.Finish()
+
+	t.Log("charging with 6A power")
+	//vehicle.EXPECT()
+	charger.EXPECT().Status().Return(api.StatusB, nil)
+	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
+	//charger.EXPECT().MaxCurrent(int64(4)).Return(nil)
+	charger.EXPECT().Enable(true).Return(nil)
+	lp.Update(-4500, false, false, false, 0, nil, nil)
+	ctrl.Finish()
+
+	t.Log("charging with 6A power")
+	//vehicle.EXPECT()
+	charger.EXPECT().Status().Return(api.StatusC, nil)
+	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
+	charger.EXPECT().MaxCurrent(int64(6)).Return(nil)
+	//charger.EXPECT().Enable(true).Return(nil)
+	lp.Update(500, false, false, false, 0, nil, nil)
+	ctrl.Finish()
+
+	//t.Log("charging above target - soc deactivates charger")
+	//clock.Add(5 * time.Minute)
+	//vehicle.EXPECT().Soc().Return(90.0, nil)
+	//charger.EXPECT().Status().Return(api.StatusC, nil)
+	//charger.EXPECT().Enabled().Return(lp.enabled, nil)
+	//charger.EXPECT().Enable(false).Return(nil)
+	//lp.Update(500, false, false, false, 0, nil, nil)
+	//ctrl.Finish()
+	//
+	//t.Log("deactivated charger changes status to B")
+	//clock.Add(5 * time.Minute)
+	//vehicle.EXPECT().Soc().Return(95.0, nil)
+	//charger.EXPECT().Status().Return(api.StatusB, nil)
+	//charger.EXPECT().Enabled().Return(lp.enabled, nil)
+	//lp.Update(-5000, false, false, false, 0, nil, nil)
+	//ctrl.Finish()
+	//
+	//t.Log("soc has fallen below target - soc update prevented by timer")
+	//clock.Add(5 * time.Minute)
+	//charger.EXPECT().Status().Return(api.StatusB, nil)
+	//charger.EXPECT().Enabled().Return(lp.enabled, nil)
+	//lp.Update(-5000, false, false, false, 0, nil, nil)
+	//ctrl.Finish()
+	//
+	//t.Log("soc has fallen below target - soc update timer expired")
+	//clock.Add(pollInterval)
+	//vehicle.EXPECT().Soc().Return(85.0, nil)
+	//charger.EXPECT().Status().Return(api.StatusB, nil)
+	//charger.EXPECT().Enabled().Return(lp.enabled, nil)
+	//charger.EXPECT().Enable(true).Return(nil)
+	//lp.Update(-5000, false, false, false, 0, nil, nil)
+	//ctrl.Finish()
 }
 
 func TestSetModeAndSocAtDisconnect(t *testing.T) {
