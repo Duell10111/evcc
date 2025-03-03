@@ -215,6 +215,44 @@ func (mr *MockCurrentGetterMockRecorder) GetMaxCurrent() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMaxCurrent", reflect.TypeOf((*MockCurrentGetter)(nil).GetMaxCurrent))
 }
 
+// MockCurrentController is a mock of CurrentController interface.
+type MockCurrentController struct {
+	ctrl     *gomock.Controller
+	recorder *MockCurrentControllerMockRecorder
+	isgomock struct{}
+}
+
+// MockCurrentControllerMockRecorder is the mock recorder for MockCurrentController.
+type MockCurrentControllerMockRecorder struct {
+	mock *MockCurrentController
+}
+
+// NewMockCurrentController creates a new mock instance.
+func NewMockCurrentController(ctrl *gomock.Controller) *MockCurrentController {
+	mock := &MockCurrentController{ctrl: ctrl}
+	mock.recorder = &MockCurrentControllerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCurrentController) EXPECT() *MockCurrentControllerMockRecorder {
+	return m.recorder
+}
+
+// GetMaxCurrent mocks base method.
+func (m *MockCurrentController) MaxCurrent(current int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MaxCurrent", current)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// GetMaxCurrent indicates an expected call of GetMaxCurrent.
+func (mr *MockCurrentControllerMockRecorder) MaxCurrent(current any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MaxCurrent", reflect.TypeOf((*MockCurrentController)(nil).MaxCurrent), current)
+}
+
 // MockPhaseSwitcher is a mock of PhaseSwitcher interface.
 type MockPhaseSwitcher struct {
 	ctrl     *gomock.Controller

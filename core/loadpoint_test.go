@@ -473,25 +473,31 @@ func TestSetCurrentAtVehicleSideIfNeeded(t *testing.T) {
 	charger := api.NewMockCharger(ctrl)
 	v := api.NewMockVehicle(ctrl)
 
-	// wrap vehicle with estimator
-	//expectVehiclePublish(vehicle)
-
 	type vehicleT struct {
 		*api.MockVehicle
 		*api.MockCurrentLimiter
+		*api.MockCurrentController
+		*api.MockCurrentGetter
 	}
 
 	vehicleCurrentLimiter := api.NewMockCurrentLimiter(ctrl)
-	vehicle := &vehicleT{v, vehicleCurrentLimiter}
-	expectVehiclePublish(v)
-	vehicle.MockVehicle.EXPECT().Identifiers().AnyTimes().Return([]string{"foo"})
+	vehicleCurrentGetter := api.NewMockCurrentGetter(ctrl)
+	vehicleCurrentController := api.NewMockCurrentController(ctrl)
+	vehicle := &vehicleT{v, vehicleCurrentLimiter, vehicleCurrentController, vehicleCurrentGetter}
+	//expectVehiclePublish(vehicle.MockVehicle)
+	// To override OnIdentified
+	vehicle.MockVehicle.EXPECT().Title().Return("target").AnyTimes()
+	vehicle.MockVehicle.EXPECT().Capacity().AnyTimes()
+	vehicle.MockVehicle.EXPECT().Icon().AnyTimes()
+	vehicle.MockVehicle.EXPECT().Features().AnyTimes()
+	vehicle.MockVehicle.EXPECT().Phases().AnyTimes()
+	vehicle.MockVehicle.EXPECT().Identifiers().Return([]string{"foo"}).AnyTimes()
 	// E.g Tesla vehicle
-	ac := api.ActionConfig{
-		MinCurrent: 5,
-		MaxCurrent: 16,
-	}
-	vehicle.MockVehicle.EXPECT().OnIdentified().AnyTimes().Return(ac)
-	vehicle.MockVehicle.EXPECT().Soc().Return(0.0, nil).AnyTimes()
+	vehicle.MockVehicle.EXPECT().OnIdentified().Return(api.ActionConfig{MinCurrent: 5, MaxCurrent: 16}).AnyTimes()
+	vehicle.MockVehicle.EXPECT().Soc().Return(10.0, nil).AnyTimes()
+
+	ac := vehicle.MockVehicle.OnIdentified()
+	t.Log(ac)
 
 	//socEstimator := soc.NewEstimator(util.NewLogger("foo"), charger, vehicle, false)
 
@@ -509,9 +515,8 @@ func TestSetCurrentAtVehicleSideIfNeeded(t *testing.T) {
 		minCurrent: minA - 1,
 		maxCurrent: maxA,
 		//socEstimator:  socEstimator, // instead of vehicle: vehicle,
-		mode:          api.ModePV,
-		sessionEnergy: NewEnergyMetrics(),
-		enabled:       true,
+		mode:    api.ModePV,
+		enabled: true,
 	}
 
 	currentLimiter := api.NewMockCurrentLimiter(ctrl)
@@ -526,7 +531,7 @@ func TestSetCurrentAtVehicleSideIfNeeded(t *testing.T) {
 
 	//charger.EXPECT().Enabled().Return(lp.enabled, nil).Times(2)
 	charger.EXPECT().Enabled().Return(lp.enabled, nil).AnyTimes()
-	charger.EXPECT().MaxCurrent(int64(6)).Return(nil)
+	charger.EXPECT().MaxCurrent(int64(6)).Return(nil).Times(1)
 	//currentLimiter.EXPECT().GetMinMaxCurrent().Return(minA, maxA, nil).Times(3)
 	currentLimiter.EXPECT().GetMinMaxCurrent().Return(minA, maxA, nil).AnyTimes()
 
@@ -538,32 +543,64 @@ func TestSetCurrentAtVehicleSideIfNeeded(t *testing.T) {
 	lp.chargeCurrent = minA
 	lp.status = api.StatusC
 	lp.setActiveVehicle(vehicle)
+	ctrl.Finish()
 
 	t.Log("charging with to low power")
 	charger.EXPECT().Status().Return(api.StatusC, nil)
 	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
-	//charger.EXPECT().MaxCurrent(int64(0)).Return(nil)
-	charger.EXPECT().Enable(false).Return(nil)
-	lp.Update(500, false, false, false, 0, nil, nil)
+	//charger.EXPECT().MaxCurrent(int64(6)).Return(nil)
+	//charger.EXPECT().Enable(true).Return(nil)
+	lp.Update(-600, 0, nil, false, false, 0, nil, nil)
 	ctrl.Finish()
 
-	t.Log("charging with 6A power")
-	//vehicle.EXPECT()
-	charger.EXPECT().Status().Return(api.StatusB, nil)
-	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
-	//charger.EXPECT().MaxCurrent(int64(4)).Return(nil)
-	charger.EXPECT().Enable(true).Return(nil)
-	lp.Update(-4500, false, false, false, 0, nil, nil)
-	ctrl.Finish()
-
-	t.Log("charging with 6A power")
+	t.Log("charging with 5A power")
 	//vehicle.EXPECT()
 	charger.EXPECT().Status().Return(api.StatusC, nil)
 	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
-	charger.EXPECT().MaxCurrent(int64(6)).Return(nil)
-	//charger.EXPECT().Enable(true).Return(nil)
-	lp.Update(500, false, false, false, 0, nil, nil)
+	charger.EXPECT().MaxCurrent(int64(5)).Return(nil).Times(1)
+	charger.EXPECT().Enable(true).Return(nil).Times(1)
+	vehicle.MockCurrentController.EXPECT().MaxCurrent(int64(5)).Return(nil).Times(1)
+	vehicle.MockCurrentGetter.EXPECT().GetMaxCurrent().Return(float64(16), nil).Times(3)
+	lp.Update(200, 0, nil, false, false, 0, nil, nil)
 	ctrl.Finish()
+
+	t.Log("charging with 7A power")
+	//vehicle.EXPECT()
+	charger.EXPECT().Status().Return(api.StatusC, nil)
+	charger.EXPECT().MaxCurrent(int64(7)).Return(nil)
+	charger.EXPECT().Enable(true).Return(nil)
+	lp.Update(-2000, 0, nil, false, false, 0, nil, nil)
+	ctrl.Finish()
+
+	t.Log("charging with 5A power")
+	//vehicle.EXPECT()
+	charger.EXPECT().Status().Return(api.StatusC, nil)
+	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
+	charger.EXPECT().MaxCurrent(int64(5)).Return(nil)
+	charger.EXPECT().Enable(true).Return(nil)
+	vehicle.MockCurrentController.EXPECT().MaxCurrent(int64(5)).Return(nil).Times(1)
+	lp.Update(1000, 0, nil, false, false, 0, nil, nil)
+	ctrl.Finish()
+
+	t.Log("charging with 5A power")
+	charger.EXPECT().Status().Return(api.StatusC, nil)
+	//charger.EXPECT().MaxCurrent(int64(minA)).Return(nil)
+	charger.EXPECT().MaxCurrent(int64(5)).Return(nil)
+	charger.EXPECT().Enable(true).Return(nil)
+	vehicle.MockCurrentController.EXPECT().MaxCurrent(int64(5)).Return(nil).Times(1)
+	lp.Update(0, 0, nil, false, false, 0, nil, nil)
+	ctrl.Finish()
+
+	t.Log("charging with 16A power")
+	charger.EXPECT().Status().Return(api.StatusC, nil)
+	charger.EXPECT().MaxCurrent(int64(12)).Return(nil).Times(1)
+	charger.EXPECT().Enable(true).Return(nil).Times(1)
+	vehicle.MockCurrentGetter.EXPECT().GetMaxCurrent().Return(float64(5), nil).Times(1)
+	vehicle.MockCurrentController.EXPECT().MaxCurrent(int64(16)).Return(nil).Times(1)
+	lp.Update(-5000, 0, nil, false, false, 0, nil, nil)
+	ctrl.Finish()
+
+	// TODO: Reset Mock expections between steps
 
 	//t.Log("charging above target - soc deactivates charger")
 	//clock.Add(5 * time.Minute)
